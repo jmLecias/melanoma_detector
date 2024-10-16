@@ -1,88 +1,161 @@
-import React, { useState, useEffect } from 'react';
-import { Button, View, Text, Image, StyleSheet, Alert, ScrollView } from 'react-native';
-import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
+import React, { useState, useEffect, useRef } from 'react';
+import { Button, View, Text, Image, StyleSheet, Alert, ScrollView, Linking, SafeAreaView, TouchableOpacity } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import ToastManager, { Toast, rightInOut } from 'toastify-react-native'
 import { bundleResourceIO } from '@tensorflow/tfjs-react-native';
+import { Camera } from 'react-native-vision-camera';
+
+import Entypo from 'react-native-vector-icons/Entypo';
+
+import COLORS from '../config/COLORS';
+import SPACING from '../config/SPACING';
+
+import { useDetect } from '../hooks/useDetect';
+
+import DetectionOverlay from '../components/DetectionOverlay';
+
+const CAPTURED_SIZE = {
+    WIDTH: 308,
+    HEIGHT: 550,
+};
 
 const Detect = () => {
-    const [imageUri, setImageUri] = useState(null);
-    const [model, setModel] = useState(null);
-    const navigation = useNavigation();
+    const [imgState, setImgState] = useState({
+        height: null,
+        width: null
+    });
 
-    // const loadModel = async () => {
-    //     const modelJson = require('../../assets/models/model.tflite'); // Adjust the path accordingly
-    //     const model = await tflite.loadTFLiteModel(bundleResourceIO(modelJson));
-    //     setModel(model);
-    // };
+    const {
+        camera,
+        showCamera,
+        setShowCamera,
+        imageSource,
+        setImageSource,
+        device,
+        capturePhoto,
+        uploadImage,
+        result,
+        setResult,
+        uploading,
+        setUploading,
+        saveImageAndResult
+    } = useDetect();
 
-    // useEffect(() => {
-    //     loadModel();
-    // }, []);
-
-    const handleImagePickerResponse = (response) => {
-        if (response.didCancel) {
-            console.log('User cancelled image picker');
-        } else if (response.errorCode) {
-            console.log('ImagePicker Error: ', response.errorCode);
-        } else if (response.assets && response.assets.length > 0) {
-            setImageUri(response.assets[0].uri);
-            // processImage(response.assets[0].uri);
+    useEffect(() => {
+        async function getPermission() {
+            const permission = await Camera.requestCameraPermission();
+            console.log("Camera permission status: " + permission);
+            if (permission === "denied") await Linking.openSettings();
         }
-    };
+        getPermission().then(() => {
+            if (device !== null) {
+                setShowCamera(true);
+            }
+        });
+    }, []);
 
-    const takePhoto = () => {
-        launchCamera({ mediaType: 'photo' }, handleImagePickerResponse);
-    };
 
-    const uploadImage = () => {
-        launchImageLibrary({ mediaType: 'photo' }, handleImagePickerResponse);
-    };
 
-    const processImage = async (uri) => {
-        if (!model) {
-            Alert.alert('Model not loaded', 'The model is not loaded yet. Please try again.');
-            return;
+    const handleResultExit = () => {
+        setImageSource('');
+        setResult(null);
+        setUploading(false);
+        if (device) {
+            setShowCamera(true);
         }
+    ;}
 
-        // Perform inference using the TFLite model
-        // ...
-
-        console.log('Processing image...');
-    };
+    if (device === null) {
+        return <Text>No cameras found!</Text>
+    }
 
     return (
-        <ScrollView>
+        <SafeAreaView>
+            <ToastManager duration={5000} animationIn={rightInOut} />
             <View style={styles.container}>
-                {imageUri && (
-                    <Image source={{ uri: imageUri }} style={styles.image} resizeMode='cover' />
-                )}
-                {!imageUri && (
-                    <Image source={require('../../assets/images/melanoma_detect.png')} style={styles.image} resizeMode='cover' />
-                )}
-                <View style={styles.buttonContainer}>
-                    <View style={{ marginBottom: 15 }}>
-                        <Button
-                            title="Take Photo"
-                            onPress={takePhoto}
-                        />
-                    </View>
-                    <View>
-                        <Button
-                            title="Upload Image"
-                            onPress={uploadImage}
-                        />
-                    </View>
+                <View style={styles.cameraContainer}>
+                    {showCamera ? (
+                        <>
+                            <Camera
+                                ref={camera}
+                                style={[StyleSheet.absoluteFill, { flex: 1 }]}
+                                device={device}
+                                isActive={showCamera}
+                                photo={true}
+                                photoQualityBalance={'speed'}
+
+                            />
+                            <View style={styles.buttonContainer}>
+                                <TouchableOpacity
+                                    style={styles.actionButton}
+                                    activeOpacity={0.8}
+                                    onPress={uploadImage}
+                                >
+                                    <Entypo name="upload" color={COLORS.primary} size={25} />
+                                </TouchableOpacity>
+                            </View>
+                        </>
+                    ) : (
+                        <>
+                            {(imageSource) && (
+                                <>
+                                    <View style={styles.capturedContainer}>
+                                        <Image
+                                            source={{ uri: imageSource }}
+                                            style={styles.image}
+                                        />
+                                        {(result) && (
+                                            <>
+                                                <DetectionOverlay
+                                                    detection={result}
+                                                    imageHeight={CAPTURED_SIZE.HEIGHT}
+                                                />
+                                            </>
+                                        )}
+                                    </View>
+                                    {(result) && (
+                                        <View style={styles.buttonContainer}>
+                                            <TouchableOpacity
+                                                style={styles.actionButton}
+                                                activeOpacity={0.8}
+                                                onPress={handleResultExit}
+                                            >
+                                                <Entypo name="cross" color={COLORS.primary} size={25} />
+                                            </TouchableOpacity>
+                                        </View>
+                                    )}
+                                </>
+                            )}
+
+                        </>
+                    )}
                 </View>
             </View>
-        </ScrollView>
+        </SafeAreaView>
     );
 };
 
 const styles = StyleSheet.create({
     container: {
-        flex: 1,
+        height: '100%',
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: COLORS.dark,
+    },
+    cameraContainer: {
+        width: '100%',
+        height: '100%',
         justifyContent: 'start',
         alignItems: 'center',
+    },
+    capturedContainer: {
+        width: CAPTURED_SIZE.WIDTH,
+        height: CAPTURED_SIZE.HEIGHT,
+        marginTop: 30,
+        borderRadius: SPACING,
+        borderColor: 'white',
+        borderWidth: 2,
+        overflow: 'hidden',
     },
     title: {
         fontSize: 24,
@@ -91,13 +164,32 @@ const styles = StyleSheet.create({
         color: '#000',
     },
     image: {
-        width: 400,
-        height: 400,
+        width: '100%',
+        height: '100%',
+        resizeMode: 'cover',
+        position: 'relative'
+    },
+    button: {
+        backgroundColor: COLORS.primary,
+        fontSize: 14,
+        padding: 5,
     },
     buttonContainer: {
-        padding: 20,
-        alignItems: 'space-evenly',
+        flexDirection: "row",
+        alignItems: 'center',
+        justifyContent: 'flex-end',
         width: '100%',
+        position: 'absolute',
+        top: 0,
+        padding: SPACING * 0.8,
+    },
+    actionButton: {
+        alignSelf: "flex-end",
+        padding: SPACING,
+        backgroundColor: COLORS.light,
+        borderRadius: SPACING * 5,
+        justifyContent: "center",
+        alignItems: "center",
     },
 });
 
